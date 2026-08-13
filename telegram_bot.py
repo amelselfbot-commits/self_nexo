@@ -434,13 +434,10 @@ def start_token_bot():
             time.sleep(2)
 
     # ─── جوین اجباری پیش‌فرض ────────────────────────────────────────────────
-    # این دو تا همیشه باید توی لیست کانال‌های جوین اجباری باشن. به‌جای
-    # هاردکد کردن یه لیست جدا و موازی، از همون سیستم دیتابیسیِ موجود
-    # (amel_forced_channels / add_forced_channel) استفاده می‌کنیم که پنل
-    # ادمین هم داره ازش استفاده می‌کنه — پس هم توی این لیست هستن و هم از
-    # طریق دستورهای «لیست کانال‌های اجباری» / «حذف کانال» قابل مدیریتن.
-    # add_forced_channel با ON CONFLICT DO NOTHING نوشته شده، پس اجرای
-    # دوباره‌ش هر بار که ربات بالا میاد کاملاً بی‌خطره (دوباره اضافه نمی‌شه).
+    # این ۳ تا کانال طبقِ درخواستِ صریحِ صاحبِ ربات دوباره فعال شدن. هر بار
+    # ربات بالا میاد، این کانال‌ها به لیستِ «جوینِ اجباری» اضافه می‌شن (اگه
+    # از قبل باشن، به‌خاطرِ ON CONFLICT DO NOTHING دوباره اضافه نمی‌شن، پس
+    # کاملاً بی‌خطره). از پنلِ مدیریت یا با «حذف کانال» قابلِ حذفن.
     try:
         db.add_forced_channel("@Gp_SelfNexo")
         db.add_forced_channel("@Ch_SelfNexo")
@@ -473,6 +470,19 @@ def start_token_bot():
         is_member, missing = _check_membership_cached(message.from_user.id)
         if not is_member:
             send_forced_channels_menu(message, missing)
+            return False
+        return True
+
+    def require_membership_callback(call) -> bool:
+        """نسخه‌ی مخصوصِ callback ها: اگه کاربر عضوِ همه‌ی کانال‌های اجباری
+        نباشه، همون پیامِ منوی کانال‌ها رو (با دکمه‌های join + بررسیِ عضویت)
+        نشون می‌ده و False برمی‌گردونه تا هندلر ادامه پیدا نکنه."""
+        if call.message.chat.type != 'private':
+            return True
+        is_member, missing = _check_membership_cached(call.from_user.id)
+        if not is_member:
+            _bot.answer_callback_query(call.id, "⛔️ اول باید در کانال‌های زیر عضو بشی.", show_alert=True)
+            send_forced_channels_menu(call.message, missing)
             return False
         return True
 
@@ -1848,6 +1858,8 @@ def start_token_bot():
     # ── مرحله ۱: کاربر «ساخت اکانت / وصل کردن سلف» را می‌زند ──────────────────
     @_bot.callback_query_handler(func=lambda call: call.data == "reg_start")
     def callback_reg_start(call):
+        if not require_membership_callback(call):
+            return
         tg_id = call.from_user.id
         _bot.answer_callback_query(call.id)
 
@@ -2891,6 +2903,8 @@ def start_token_bot():
         try:
             if call.message.chat.type != 'private':
                 return
+            if not require_membership_callback(call):
+                return
             account = _get_account_cached(call.from_user.id)
             if not account:
                 return _bot.answer_callback_query(call.id, "⚠️ ابتدا در پنل وب ثبت‌نام کنید.", show_alert=True)
@@ -2914,6 +2928,8 @@ def start_token_bot():
 
     @_bot.callback_query_handler(func=lambda call: call.data == "menu_daily")
     def callback_menu_daily(call):
+        if not require_membership_callback(call):
+            return
         _bot.answer_callback_query(call.id)
         _do_daily(call.from_user.id, call.message.chat.id)
 
@@ -2942,6 +2958,8 @@ def start_token_bot():
 
     @_bot.callback_query_handler(func=lambda call: call.data == "menu_referral")
     def callback_menu_referral(call):
+        if not require_membership_callback(call):
+            return
         _bot.answer_callback_query(call.id)
         _do_referral(call.from_user.id, call.message.chat.id)
 
@@ -3609,6 +3627,8 @@ def start_token_bot():
 
     @_bot.callback_query_handler(func=lambda call: call.data == "menu_buy")
     def callback_menu_buy(call):
+        if not require_membership_callback(call):
+            return
         _bot.answer_callback_query(call.id)
         _do_buy(call.from_user.id, call.message.chat.id)
 
@@ -4160,7 +4180,7 @@ def start_token_bot():
                 return
 
             elif data == "admin_toggle_start_approval":
-                if tg_id != OWNER_TG_ID and not db.is_sub_admin(tg_id):
+                if uid != OWNER_TG_ID and not db.is_sub_admin(uid):
                     return _bot.answer_callback_query(call.id, "⛔ فقط مالک/ادمین دسترسی داره.", show_alert=True)
                 current = db.get_global_setting("start_approval_required", "0") == "1"
                 new_val = "0" if current else "1"
@@ -5846,7 +5866,7 @@ def start_token_bot():
                     cache.invalidate("membership_")
                     _bot.reply_to(message, f"✅ چنل <b>{text}</b> اضافه شد.", reply_markup=_owner_keyboard())
                 else:
-                    _bot.reply_to(message, f"⚠️ خطا یا تکراری است.", reply_markup=_owner_keyboard())
+                    _bot.reply_to(message, f"❌ خطا در افزودنِ چنل (مشکل در اتصال به دیتابیس). دوباره تلاش کن.", reply_markup=_owner_keyboard())
                 _owner_states.pop(message.from_user.id, None)
             
             elif state == "wc_team1":
@@ -6770,6 +6790,8 @@ def start_token_bot():
 
     @_bot.callback_query_handler(func=lambda call: call.data == "menu_missions")
     def callback_menu_missions(call):
+        if not require_membership_callback(call):
+            return
         _bot.answer_callback_query(call.id)
         _do_missions(call.from_user.id, call.message.chat.id)
 
